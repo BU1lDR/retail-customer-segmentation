@@ -1,0 +1,56 @@
+name: CI
+
+# This repository had no CI at all, which for an analysis project is a specific
+# gap rather than a general one. The notebook computes 236 numbers into
+# outputs/facts.json; the .docx report is generated from that file and so cannot
+# drift; the README quotes about a hundred of the same numbers by hand and can.
+# Nothing compared them.
+#
+# The first run of tools/check_docs_drift.py found a stale figure in the notebook
+# — "20 off-peak cohorts" where facts.json says 18 — which the generated report
+# had had right all along. That is the whole argument for this file.
+#
+# What it deliberately does not do is run the notebook. The source workbook is
+# 112 MB from UCI, is not committed, and a full execution takes minutes; a job
+# that downloads it on every push would be slow, would fail on UCI's throughput
+# rather than on our code, and would be switched off. So every check here reads
+# only committed files. The cost of that choice is stated in the checker: it
+# verifies the documents agree with facts.json, not that facts.json is right.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  documents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      # nbformat only. The heavy stack in requirements.txt is what the notebook
+      # needs to run; nothing here runs it, and installing pandas and
+      # scikit-learn to read a JSON file would make this job twenty times slower
+      # for no extra assurance.
+      - name: Install what the checks need, and nothing else
+        run: pip install nbformat
+
+      - name: The documents still say what the analysis computed
+        run: python tools/check_docs_drift.py
+
+      # A tool that crashes on import is a tool nobody can run, and two of these
+      # are only ever invoked by hand — months apart, usually when something else
+      # has already gone wrong. Compiling them is cheap and catches the syntax
+      # error that would otherwise surface at the worst moment. It is not a claim
+      # that they work: build_report.py needs the figures and run_notebook.py
+      # needs the data, so neither can be executed here.
+      - name: The tools at least parse
+        run: python -m compileall -q tools/

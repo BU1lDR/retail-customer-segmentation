@@ -8,12 +8,22 @@ narrative consistent.
 Usage
 -----
     python tools/build_notebook.py     # writes the .ipynb, unexecuted
+    python tools/build_notebook.py --check   # compare instead of write
     python tools/run_notebook.py      # executes it in place, reports failures
     python tools/build_report.py      # rebuilds the .docx from the new outputs
 
 Regenerating discards any edit made directly to the .ipynb, so change the cell
 sources here rather than the notebook.
+
+That warning used to be the only thing enforcing itself. `--check` compares the
+committed notebook's cell sources against the ones here and exits 1 if they have
+parted -- so an edit made in the browser is reported on the next push instead of
+being silently reverted by whoever regenerates next, possibly months later. It
+compares sources only, never outputs: the committed notebook is executed and what
+this script writes is not, so anything stricter would fail on every run and get
+ignored. tools/check_docs_drift.py calls it.
 """
+import sys
 from pathlib import Path
 
 import nbformat as nbf
@@ -2436,10 +2446,20 @@ md(r'''
 
 ### Reproducibility
 
-Every number and every chart in this notebook is computed from the source data
-by the cells above — nothing is typed in by hand. `outputs/facts.json` holds the
-computed values that the accompanying project report quotes, so the two
-documents cannot drift apart.
+Every number and every chart in the **outputs** above is computed from the source
+data by the cells that produced them, and `outputs/facts.json` records those
+computed values. The project report is generated from that file by
+`tools/build_report.py`, so the report cannot drift away from the analysis.
+
+The narrative prose is a different matter, and this section used to overstate it.
+Figures quoted in markdown cells — like the cohort counts in 11.2 — are typed, not
+interpolated, because a markdown cell cannot read a runtime value. One of them was
+wrong for some while: this notebook said the Christmas comparison ran against 20
+off-peak cohorts where `facts.json` and the generated report both said 18. The
+report was right, because it had no choice. So: trust the outputs, and treat a
+number in the prose as a claim that `facts.json` settles. `tools/check_docs_drift.py`
+now holds the README and the report to that file, and holds this notebook to
+`tools/build_notebook.py`, which is how the 20 was finally found.
 
 **Dataset:** Chen, D. (2019). *Online Retail II* [Dataset]. UCI Machine Learning
 Repository. <https://doi.org/10.24432/C5CG6D> —
@@ -2457,6 +2477,40 @@ nb.metadata.update({
     "authors": [{"name": "Aryan Verma"}],
     "title": "Retail Customer Segmentation & Sales Analysis",
 })
+shape = (f"{len(nb.cells)} cells ({sum(1 for k, _ in C if k == 'code')} code, "
+         f"{sum(1 for k, _ in C if k == 'md')} markdown)")
+
+if "--check" in sys.argv[1:]:
+    if not OUT.exists():
+        sys.exit(f"{OUT.name} does not exist. Run this script without --check.")
+    # Read through nbformat, not json: the on-disk `source` is a list of lines,
+    # and nbformat is what normalises it back to the single string this script
+    # produced. Comparing the raw JSON would compare two different shapes.
+    committed = nbf.read(OUT, as_version=4)
+    have = [(c.cell_type, c.source) for c in committed.cells]
+    want = [(c.cell_type, c.source) for c in nb.cells]
+    problems = []
+    if len(have) != len(want):
+        problems.append(f"cell count: notebook has {len(have)}, this script builds {len(want)}")
+    for i, ((h_kind, h_src), (w_kind, w_src)) in enumerate(zip(have, want)):
+        if h_kind != w_kind:
+            problems.append(f"cell {i}: notebook is {h_kind}, script builds {w_kind}")
+        elif h_src.rstrip("\n") != w_src.rstrip("\n"):
+            problems.append(f"cell {i} ({h_kind}) source differs")
+    if problems:
+        print(f"{OUT.name} has parted from build_notebook.py:")
+        for p in problems[:20]:
+            print(f"  - {p}")
+        if len(problems) > 20:
+            print(f"  ... and {len(problems) - 20} more")
+        sys.exit(
+            "\nThe notebook was edited directly. Whoever regenerates next will\n"
+            "silently revert that edit, which is why this is a failure and not a\n"
+            "note. Move the change into this script's cell sources, then run\n"
+            "build_notebook.py and run_notebook.py to rebuild and re-execute."
+        )
+    print(f"{OUT.name} matches build_notebook.py: {shape}, sources identical")
+    sys.exit(0)
+
 nbf.write(nb, OUT)
-print(f"wrote {OUT.name}: {len(nb.cells)} cells "
-      f"({sum(1 for k, _ in C if k == 'code')} code, {sum(1 for k, _ in C if k == 'md')} markdown)")
+print(f"wrote {OUT.name}: {shape}")
