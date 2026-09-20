@@ -20,7 +20,7 @@ name: CI
 # wrong in the builder is wrong identically in both files, they agree, and the check
 # reports clean — putting the 20 back into both is enough to watch it happen. What
 # catches it is reading the notebook's prose against facts.json directly, which is
-# what the checker does now, over 109 anchored figures. That is the argument for
+# what the checker does now, over 114 anchored figures. That is the argument for
 # this file, and the correction is kept rather than quietly edited out because a
 # guard credited with a catch it cannot make is worse than no guard: the next person
 # reads the claim instead of the code.

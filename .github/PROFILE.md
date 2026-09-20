@@ -1,13 +1,15 @@
 <!-- Rendered into the profile README at github.com/BU1lDR by
      BU1lDR/BU1lDR/tools/build_readme.py, on the hour and on dispatch.
-     First line: "# <display name> — <heading tail>". Then the body, verbatim.
-     Placeholders filled from the GitHub API: {license} {version} {live} {description}.
-     Figures written here are copies; nothing in this repository's CI reads this file yet. -->
+     Format: "# <display name> — <heading tail>", a one-line meta row, then at most
+     two short paragraphs. Placeholders filled from the GitHub API: {license}
+     {version} {live} {description}. Every figure below is a copy of a key in
+     outputs/facts.json, and tools/check_docs_drift.py holds this file to it in CI
+     the same way it holds the notebook's prose. -->
 
 # Retail customer segmentation — 1,067,371 transaction lines
 
-UCI Online Retail II (CC BY 4.0), deliberately not committed.
+{license} · Jupyter · pandas · scikit-learn · UCI Online Retail II (CC BY 4.0) · IBM SkillsBuild × BharatCares capstone
 
-- Nine individually logged cleaning steps take 1,067,371 raw lines down to £20.5M of reportable revenue, of which £17.5M — 85.4% — carries a customer ID and is therefore all the segmentation can actually use.
-- Names the 683 high-value accounts worth £1,689,620 that have stopped ordering. The top 20% of identified customers, 1,170 of them, hold 77.2% of identified revenue. RFM quintile segmentation is cross-checked against K-Means, which agrees on 80.5% of customers and is weakest on Loyal at 60.9% purity; k=4 was kept even though the silhouette score preferred k=2.
-- Shows its own 12-month CLV projection running 2.91× high on a like-for-like basis, instead of quoting that projection as a result, and states what the data cannot support: 22.9% of cleaned lines carry no customer ID at all. Every computed figure above is a named key in a committed `outputs/facts.json` (the nine cleaning steps are rows of its `clean_log` table), and CI holds the README, the notebook's prose, the notebook's committed cell outputs and the `.docx` to it — the README by distinctive rendered numbers, with the five it cannot tell from a coincidental match named in the check rather than quietly skipped, k=4 and k=2 among them; the other three by anchored figures, each found by the sentence around it rather than by matching a number anywhere in the file, and an anchor that fits two different figures is a failure rather than a first-match, because these documents quote their own past mistakes on purpose. The stale figure the check cites as its reason to exist — 20 off-peak cohorts in the notebook's prose where `facts.json` says 18 — was first credited to the notebook-against-its-builder comparison, which cannot catch it: a figure typed wrong in the builder is wrong identically in both files. That correction stays in the README rather than being edited out, and the rewrite that extended the check to the committed artefacts also found one of its own patterns had never matched anything: it wanted a literal space where the README wraps, and an `if` had been turning no match into a pass for the check's whole life.
+Nine logged cleaning steps, RFM segmentation cross-checked against K-Means, CLV estimation and cohort retention on a UK online retailer's two years of orders. Names the 683 high-value accounts worth £1,689,620 that have stopped ordering; the top 20% of identified customers hold 77.2% of identified revenue. States what the data cannot support, including its own 12-month CLV projection that runs 2.91× high.
+
+Every figure is a named key in a committed `outputs/facts.json`, and CI holds the README, the notebook's prose and committed outputs, the generated report and this paragraph to it, so none of the five can drift from the analysis unnoticed.

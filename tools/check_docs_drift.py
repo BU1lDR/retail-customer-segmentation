@@ -5,7 +5,7 @@
 The notebook's Reproducibility section used to end on a guarantee: the report is
 generated from outputs/facts.json, "so the report cannot drift away from the
 analysis". True of how the report is *built*, enforced by nothing, and not true of
-the file committed here at all. Five ways the documents could stop agreeing with the
+the file committed here at all. Six ways the documents could stop agreeing with the
 analysis, none of which anything noticed:
 
   1. The README quotes about a hundred computed numbers and is written by hand.
@@ -41,7 +41,13 @@ analysis, none of which anything noticed:
      of what the analysis actually printed -- are artefacts of a run, and a run
      that happened before the last one is stale rather than generated.
 
-All five are checked here, and all five are checked without the source data --
+  6. .github/PROFILE.md is the paragraph the profile README at github.com/BU1lDR
+     renders for this repository, rebuilt from this file every hour by another
+     repository's workflow. It is typed by hand, carries the headline figures, and
+     reaches more readers than anything else here -- and until it had a map below
+     it was the one copy in the repository that nothing read.
+
+All six are checked here, and all six are checked without the source data --
 which is the point. The dataset is 112 MB and not committed, so any check that
 needed it would not run in CI, and a check that does not run is a comment.
 
@@ -67,6 +73,7 @@ NOTEBOOK_BUILDER = ROOT / "tools" / "build_notebook.py"
 NOTEBOOK = ROOT / "AryanVerma_RetailCustomerSegmentationAnalysis.ipynb"
 REPORT = ROOT / "AryanVerma_ProjectReport.docx"
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+PROFILE = ROOT / ".github" / "PROFILE.md"
 
 failures = 0
 
@@ -240,7 +247,8 @@ def check_readme(facts):
     # the README is the thing this file is for. Two files describe it -- the CI
     # workflow argues for its own existence in a comment -- so both are read. The
     # workflow is the one nobody would think to update.
-    anchors = len(NOTEBOOK_PROSE) + len(NOTEBOOK_OUTPUT) + len(REPORT_PROSE)
+    anchors = (len(NOTEBOOK_PROSE) + len(NOTEBOOK_OUTPUT) + len(REPORT_PROSE)
+               + len(PROFILE_PROSE))
     for path in (README, WORKFLOW):
         stated = re.search(r"(\d+)\s+anchored\s+figures",
                            path.read_text(encoding="utf-8"))
@@ -250,7 +258,7 @@ def check_readme(facts):
                  "Either restore the figure or drop the sentence that carried it.")
         elif int(stated.group(1)) != anchors:
             fail(f"{where} says this check reads {stated.group(1)} anchored figures; "
-                 f"the three maps in this file hold {anchors}.",
+                 f"the four maps in this file hold {anchors}.",
                  f"Update {where}.")
 
     if failures == before:
@@ -629,6 +637,22 @@ NOTEBOOK_OUTPUT = [
 ]
 
 
+#: The paragraph the profile README at github.com/BU1lDR renders for this repository.
+#: BU1lDR/BU1lDR/tools/build_readme.py reads .github/PROFILE.md from here on the hour
+#: and rewrites the profile from it, so this file is the copy of the headline figures
+#: that reaches the most readers -- and, until this map existed, the one copy in the
+#: repository that nothing checked. It is short on purpose (a tagline, a meta row, two
+#: paragraphs), so every figure it carries is here. The title line is read too: the
+#: heading tail states the row count.
+PROFILE_PROSE = [
+    ("raw_rows", "{:,}", "{} transaction lines"),
+    ("at_risk_customers", "{:,}", "Names the {} high-value accounts"),
+    ("at_risk_revenue", "{:,.0f}", "accounts worth {} that have stopped ordering"),
+    ("top20pct_share", "{:.1f}", "hold {}% of identified revenue"),
+    ("proj_vs_actual_ratio", "{}", "projection that runs {} high"),
+]
+
+
 def check_anchored(label, text, facts, specs, fix):
     """Hold every (fact, rendering, anchor) in `specs` to `text`.
 
@@ -715,6 +739,10 @@ FIX_OUTPUT = (
     "The committed notebook was executed against an older facts.json than the one\n"
     "in outputs/. Re-run python tools/run_notebook.py and commit both, so the\n"
     "outputs in the notebook and the facts file come from the same run."
+)
+FIX_PROFILE = (
+    "facts.json is the source of truth: fix the sentence in .github/PROFILE.md. The\n"
+    "profile README at github.com/BU1lDR rebuilds from that file within the hour."
 )
 
 
@@ -818,6 +846,11 @@ def main():
                    NOTEBOOK_OUTPUT, FIX_OUTPUT)
     check_anchored("the committed .docx", report, payload["facts"],
                    REPORT_PROSE, FIX_REPORT)
+    print()
+    print("  -- the profile blurb against outputs/facts.json --")
+    check_anchored("the profile blurb (.github/PROFILE.md)",
+                   PROFILE.read_text(encoding="utf-8"), payload["facts"],
+                   PROFILE_PROSE, FIX_PROFILE)
     print()
 
     if failures:
