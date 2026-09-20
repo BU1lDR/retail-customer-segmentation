@@ -2449,17 +2449,30 @@ md(r'''
 Every number and every chart in the **outputs** above is computed from the source
 data by the cells that produced them, and `outputs/facts.json` records those
 computed values. The project report is generated from that file by
-`tools/build_report.py`, so the report cannot drift away from the analysis.
+`tools/build_report.py`, so no number in it is transcribed by hand.
 
-The narrative prose is a different matter, and this section used to overstate it.
-Figures quoted in markdown cells — like the cohort counts in 11.2 — are typed, not
-interpolated, because a markdown cell cannot read a runtime value. One of them was
-wrong for some while: this notebook said the Christmas comparison ran against 20
-off-peak cohorts where `facts.json` and the generated report both said 18. The
-report was right, because it had no choice. So: trust the outputs, and treat a
-number in the prose as a claim that `facts.json` settles. `tools/check_docs_drift.py`
-now holds the README and the report to that file, and holds this notebook to
-`tools/build_notebook.py`, which is how the 20 was finally found.
+That is not the same as the report being unable to disagree with the analysis, which
+is what this section used to claim. *Generated* describes the script; the `.docx`
+committed in the repository describes the run that last produced it. Re-run the
+notebook, commit `facts.json`, skip the rebuild, and the repository holds a report
+that is perfectly consistent with itself and older than the analysis — no figure in
+it wrong on its own, the whole file behind. The cell outputs committed in this
+notebook are the same kind of artefact: what one execution printed.
+
+The narrative prose is the third case and the plainest. Figures quoted in markdown
+cells — like the cohort counts in 11.2 — are typed, not interpolated, because a
+markdown cell cannot read a runtime value. One of them was wrong for some while:
+this notebook said the Christmas comparison ran against 20 off-peak cohorts where
+`facts.json` and the generated report both said 18. The report was right, because it
+had no choice.
+
+So: trust the outputs, and treat a number in the prose as a claim that `facts.json`
+settles. `tools/check_docs_drift.py` does that now, figure by figure, across this
+notebook's markdown, its committed outputs, the `.docx` and the README. This
+paragraph used to credit the comparison between this notebook and
+`tools/build_notebook.py` with having caught that 20, which is something that
+comparison cannot do: the notebook is generated from that file, so a figure typed
+wrong there is wrong identically here, the two agree, and the check reports clean.
 
 **Dataset:** Chen, D. (2019). *Online Retail II* [Dataset]. UCI Machine Learning
 Repository. <https://doi.org/10.24432/C5CG6D> —

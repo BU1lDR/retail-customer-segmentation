@@ -2,10 +2,11 @@
 
     python tools/check_docs_drift.py
 
-The notebook ends with a claim: "outputs/facts.json holds the computed values that
-the accompanying project report quotes, so the two documents cannot drift apart."
-That was true of how the report is *built* and enforced by nothing. Three ways it
-could stop being true, none of which anything noticed:
+The notebook's Reproducibility section used to end on a guarantee: the report is
+generated from outputs/facts.json, "so the report cannot drift away from the
+analysis". True of how the report is *built*, enforced by nothing, and not true of
+the file committed here at all. Five ways the documents could stop agreeing with the
+analysis, none of which anything noticed:
 
   1. The README quotes about a hundred computed numbers and is written by hand.
      Re-run the notebook with one cleaning rule changed and every one of them can
@@ -22,7 +23,25 @@ could stop being true, none of which anything noticed:
      stopped an edit being made directly to the .ipynb, so the next regeneration
      silently reverted it.
 
-All three are checked here, and all three are checked without the source data --
+  4. The notebook's narrative is generated too, which is not the same as being
+     computed. Its markdown cells cannot read a runtime value, so every figure in
+     them is typed by hand into build_notebook.py -- and then copied faithfully
+     into the .ipynb, where check 3 compares one copy of a mistake against
+     another and agrees. A figure typed wrongly there is invisible to checks 1-3
+     for as long as nobody re-reads the sentence. The notebook says this about
+     itself, in the section that used to call the report incapable of drifting --
+     the same mistake twice in one paragraph: a fact about how a file is produced,
+     read as a guarantee about the file.
+
+  5. The .docx is generated from facts.json, which is a fact about
+     tools/build_report.py rather than about the file in this repository. The
+     committed report is whatever the last person to run that script produced,
+     against whatever facts.json said that day. Both it and the notebook's
+     committed cell outputs -- 1.2 MB of them, executed, and the only record here
+     of what the analysis actually printed -- are artefacts of a run, and a run
+     that happened before the last one is stale rather than generated.
+
+All five are checked here, and all five are checked without the source data --
 which is the point. The dataset is 112 MB and not committed, so any check that
 needed it would not run in CI, and a check that does not run is a comment.
 
@@ -35,13 +54,19 @@ import json
 import re
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
+
+import nbformat as nbf
 
 ROOT = Path(__file__).resolve().parents[1]
 FACTS_PATH = ROOT / "outputs" / "facts.json"
 README = ROOT / "README.md"
 REPORT_BUILDER = ROOT / "tools" / "build_report.py"
 NOTEBOOK_BUILDER = ROOT / "tools" / "build_notebook.py"
+NOTEBOOK = ROOT / "AryanVerma_RetailCustomerSegmentationAnalysis.ipynb"
+REPORT = ROOT / "AryanVerma_ProjectReport.docx"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 
 failures = 0
 
@@ -166,11 +191,12 @@ def check_readme(facts):
         total = len(README_FACTS) + len(ABS_FACTS)
         ok(f"README.md agrees with facts.json on all {total} checked number(s)")
 
-    # The README describes this check, and in doing so quotes two counts. Writing
-    # them created two more numbers with nothing behind them, in the document this
+    # The README describes this check, and in doing so quotes three counts. Writing
+    # them created three more numbers with nothing behind them, in the document this
     # file exists to stop that happening to. So they are checked. Cheap, and the
-    # alternative was deleting two genuinely useful figures.
-    claimed = re.search(r"(\d+) numbers in this README", text)
+    # alternative was deleting three genuinely useful figures.
+    before = failures
+    claimed = re.search(r"(\d+)\s+numbers\s+in\s+this\s+README", text)
     if not claimed:
         fail("README.md no longer states how many of its numbers are checked.",
              "Either restore the figure or drop this assertion; do not leave a\n"
@@ -182,17 +208,55 @@ def check_readme(facts):
             "Update the README.",
         )
 
-    facts_claimed = re.search(r"all (\d+)\s*\n?\s*facts `build_report\.py` reads", text)
-    if facts_claimed:
-        real = len(set(re.findall(
-            r"""\bF\[['"]([^'"]+)['"]\]""",
-            REPORT_BUILDER.read_text(encoding="utf-8"))))
-        if int(facts_claimed.group(1)) != real:
-            fail(
-                f"README.md says build_report.py reads {facts_claimed.group(1)} facts; "
-                f"it reads {real}.",
-                "Update the README.",
-            )
+    # The second of those two counts, and the one that was never read. This
+    # pattern used to be `all (\d+)\s*\n?\s*facts `build_report\.py` reads`, which
+    # tolerated a line break between the digits and "facts" and then required a
+    # literal space before the backtick. The README wraps in the other place --
+    # "all 186 facts\n`build_report.py` reads by name" -- so it matched nothing,
+    # and `if facts_claimed:` turned that into a pass. It reported clean on every
+    # run for its whole life while checking a number it had never found.
+    #
+    # Both halves of that are fixed, and the second half is the one that matters:
+    # a pattern can always be outrun by a rewrite, so a pattern that does not
+    # match has to be a failure. \s+ everywhere, and the same `if not` shape as
+    # the check above it.
+    real = len(set(re.findall(
+        r"""\bF\[['"]([^'"]+)['"]\]""",
+        REPORT_BUILDER.read_text(encoding="utf-8"))))
+    facts_claimed = re.search(r"all\s+(\d+)\s+facts\s+`build_report\.py`\s+reads", text)
+    if not facts_claimed:
+        fail("README.md no longer states how many facts build_report.py reads.",
+             "Either restore the figure or drop this assertion. Do not leave the\n"
+             "pattern here unmatched: that is what this check did for its whole\n"
+             "life, and a silent pass is indistinguishable from a real one.")
+    elif int(facts_claimed.group(1)) != real:
+        fail(
+            f"README.md says build_report.py reads {facts_claimed.group(1)} facts; "
+            f"it reads {real}.",
+            "Update the README.",
+        )
+    # A third count, added with the checks below it for the same reason: describing
+    # what this file covers puts a number in the README, and an uncounted number in
+    # the README is the thing this file is for. Two files describe it -- the CI
+    # workflow argues for its own existence in a comment -- so both are read. The
+    # workflow is the one nobody would think to update.
+    anchors = len(NOTEBOOK_PROSE) + len(NOTEBOOK_OUTPUT) + len(REPORT_PROSE)
+    for path in (README, WORKFLOW):
+        stated = re.search(r"(\d+)\s+anchored\s+figures",
+                           path.read_text(encoding="utf-8"))
+        where = path.relative_to(ROOT).as_posix()
+        if not stated:
+            fail(f"{where} no longer states how many anchored figures this check reads.",
+                 "Either restore the figure or drop the sentence that carried it.")
+        elif int(stated.group(1)) != anchors:
+            fail(f"{where} says this check reads {stated.group(1)} anchored figures; "
+                 f"the three maps in this file hold {anchors}.",
+                 f"Update {where}.")
+
+    if failures == before:
+        ok("the three counts README.md and ci.yml give for this check are right "
+           f"({len(README_FACTS) + len(ABS_FACTS)} numbers, {real} facts, "
+           f"{anchors} anchored figures)")
 
 
 # --------------------------------------------------------------------------- #
@@ -257,6 +321,473 @@ def check_notebook_is_generated():
 
 
 # --------------------------------------------------------------------------- #
+# 4. the figures typed into the narrative, and the figures frozen into artefacts
+# --------------------------------------------------------------------------- #
+# Checks 1-3 leave out the document with the most numbers in it. The notebook's
+# markdown cells cannot read a runtime value, so every figure in its findings
+# section is typed by hand into build_notebook.py; the .ipynb is then generated
+# from that, which means check 3 compares two copies of whatever was typed and
+# finds them identical. Nothing here had ever read a markdown cell and facts.json
+# in the same breath, which is the same hole that let the README drift before
+# check 1 existed, in the same repository, for the same reason.
+#
+# Worth being exact about what that means for the "20 off-peak cohorts" this
+# script is credited with catching. A figure edited directly into the .ipynb is
+# caught by check 3 -- as "the notebook has parted from its builder", which is
+# what sends someone to read the sentence. A figure wrong in build_notebook.py
+# itself, regenerated faithfully into the notebook, was caught by nothing until
+# this section, and that is the state the file is normally in: the builder is
+# where you are told to edit.
+#
+# ANCHORS, NOT BARE NUMBERS
+#
+# check_readme above matches a rendered number anywhere in the file and depends on
+# the number being distinctive -- which is why it gives up on five facts whose
+# values are single digits. That trade is wrong for a narrative: "18 off-peak
+# cohorts" and "in 18 months" are both in this notebook, and the figure that was
+# wrong for months was a bare 18. So every entry below carries the words around
+# the number, and a match has to be the number in its own sentence. It costs a
+# rewrite of the sentence breaking the check, which is handled by making that a
+# failure rather than a skip -- see `anchored`.
+#
+# WHY THE THREE MAPS ARE DIFFERENT SIZES
+#
+# The notebook's prose is hand-typed, so any one figure in it can be wrong on its
+# own and it gets a full map. The .docx and the notebook's committed outputs are
+# generated, so their figures cannot be individually wrong -- they can only be
+# collectively old. Staleness moves every number at once, so ten anchors detect it
+# exactly as well as forty, and forty would be forty sentences to re-anchor for no
+# additional answer.
+
+WORDS = ("zero one two three four five six seven eight nine ten eleven "
+         "twelve").split()
+
+
+def millions(value):
+    """The narrative rounds its largest figures: "GBP 12.54M"."""
+    return f"{value / 1e6:,.2f}M"
+
+
+def magnitude(value):
+    """For a figure the prose states as a size, having already given the
+    direction in words: "a GBP 1,248,022 decline" against a fact of -1248021.67.
+    Asserting the minus sign would be asserting a sentence rather than a number."""
+    return f"{abs(value):,.0f}"
+
+
+def spelled(value):
+    """Counts small enough that the prose writes them as words: "two cohorts",
+    "seven of the top ten products". They go stale exactly like digits do."""
+    return WORDS[int(value)]
+
+
+#: What a wrong figure could look like: something starting with a digit, or one of
+#: the words a small count gets written as. Loose enough to tell "this number
+#: disagrees" apart from "this sentence is gone" -- two answers that must not
+#: arrive as the same message -- and no looser, because it is also what decides
+#: whether an anchor is specific enough to name one sentence. An earlier version
+#: allowed any word here and reported the anchor `({})` as ambiguous against
+#: "(carriage)", which is true and useless.
+ANY_FIGURE = r"\d[\w.,%]{0,17}|" + "|".join(WORDS)
+
+#: Between two words of an anchor: whitespace, and up to four punctuation
+#: characters on either side of it. That is what lets every anchor in this file be
+#: written in ASCII against prose full of em dashes, pound signs and markdown
+#: emphasis -- "lines {}% of gross revenue" has to match "18,467 lines - 3.60% of
+#: gross revenue" and "retailer's {}th" has to match "retailer's **4th**".
+JOIN = r"[^\w\s]{0,4}\s+[^\w\s]{0,4}\s*"
+
+#: A figure must not match inside a longer one. Without these, "{} off-peak
+#: cohorts" is satisfied by "118 off-peak cohorts" and "the UK's {}" by 483.275.
+LEFT_EDGE = r"(?<![\w,.])"
+RIGHT_EDGE = r"(?![\d,.]*\d)"
+
+
+def anchored(anchor, figure):
+    r"""Compile an anchor -- prose with `{}` where the figure goes.
+
+    Whitespace becomes `\s+`. Every document here is hard-wrapped, so any anchor
+    longer than two words will eventually have a newline dropped into the middle
+    of it; a literal space works until the paragraph rewraps and then the pattern
+    stops matching. That is only survivable because a missing anchor is a failure
+    below. The `build_report.py reads N facts` check above got both halves of that
+    wrong at once -- a newline tolerance in the wrong position and an `if matched:`
+    around the comparison -- and so reported clean without reading anything.
+
+    Case-insensitive because the same figure is a sentence's first word in one
+    document and its fourth in another: the notebook writes "Seven of the top ten
+    products" where the fact renders as "seven".
+
+    A bare `...` token skips up to forty characters. It exists for one situation:
+    the words that tell two sentences apart sit on the far side of some *other*
+    figure, and writing that figure into the anchor would put a hand-typed copy of
+    a fact inside the file whose job is to have none. The .docx needs it -- it
+    states the Champions revenue twice, "GBP 12,536,030" in the body and
+    "GBP 12.54M" in the summary, and the only words that separate them are beyond
+    "71.5%".
+    """
+    parts = []
+    for token in anchor.split():
+        if token == "...":
+            parts.append(r"[\s\S]{0,40}")
+        elif "{}" in token:
+            head, _, tail = token.partition("{}")
+            parts.append(re.escape(head) + r"[^\w\s]{0,4}\s*"
+                         + LEFT_EDGE + figure + RIGHT_EDGE + re.escape(tail))
+        else:
+            parts.append(re.escape(token))
+    return re.compile(JOIN.join(parts), re.IGNORECASE)
+
+
+def excerpt(match):
+    r"""The matched words, on one line, in ASCII.
+
+    Both halves earn their place. The one line is because every document here is
+    hard-wrapped, so a quoted match arrives with newlines and indentation in it.
+
+    The ASCII is not cosmetic. These documents contain a pound sign, em dashes, a
+    multiplication sign and -- in the notebook's retention prose -- a capital
+    delta; the default stdout on a Windows console is cp1252 and cannot encode the
+    last of those. Printing a match verbatim therefore raises UnicodeEncodeError
+    on the one path that matters: a real disagreement, found, being reported. The
+    check would exit non-zero with a traceback instead of a finding, which is a
+    worse failure than the drift it had just caught. Everything this file writes is
+    ASCII for that reason, and a quotation from a document is the only place where
+    that is not automatic.
+    """
+    return plain(" ".join(match.group(0).split()))
+
+
+def plain(text):
+    """Text from a document, safe to print on any console. See excerpt()."""
+    return text.encode("ascii", "replace").decode("ascii")
+
+
+#: (fact, how the notebook renders it, the sentence it sits in). Section numbers
+#: are the notebook's own. Everything here is a markdown cell -- typed, not
+#: interpolated -- which is the whole reason this map exists.
+#:
+#: Not covered, said out loud because "56 of the findings section's figures" is a
+#: fact and "the notebook is checked" would be a claim: the two ratios the prose
+#: computes from two facts each ("3.4x" the mean over the median, "5.1x" the Dutch
+#: order over the British), the cohort sizes n=326 and n=76, the sums 28.3% and
+#: 3.4%, and the derived "42 other markets". Those are arithmetic on facts rather
+#: than facts, and an entry here would have to redo the arithmetic to check them,
+#: at which point the check is asserting its own opinion of what the sentence
+#: should say.
+NOTEBOOK_PROSE = [
+    # header table and the cleaning sections
+    ("raw_rows", "{:,}", "| {} invoice lines"),
+    ("countries", "{:,}", "{} countries |"),
+    ("anonymous_rows_pct", "{:.1f}", "{}% of all sales lines"),
+    ("anonymous_rows", "{:,}", "clean sales lines ({}),"),
+    ("anonymous_revenue_pct", "{:.1f}", "carrying {}% of"),
+    ("id_coverage_pct", "{:.1f}", "computed on the identified {}% only"),
+    # finding 1 -- concentration
+    ("top20pct_customers", "{:,}", "{} customers (20%) generate"),
+    ("top20pct_share", "{:.1f}", "generate {}% of identified revenue"),
+    ("top1pct_customers", "{:,}", "The top {} customers (1%) generate"),
+    ("top1pct_share", "{:.1f}", "customers (1%) generate {}%"),
+    ("sales_id_revenue", millions, "{} carried by identified customers"),
+    ("total_revenue", millions, "not the {} total"),
+    ("median_customer_revenue", "{:,.0f}", "median customer is worth {} and the mean"),
+    ("mean_customer_revenue", "{:,.0f}", "and the mean {}"),
+    ("aov", "{:,.2f}", "a {} mean against"),
+    ("median_order", "{:,.2f}", "mean against a {} median"),
+    # finding 2 -- segments
+    ("seg_champions_customers", "{:,}", "Champions {} customers,"),
+    ("seg_champions_cust_pct", "{:.1f}", "customers, {}% of the base"),
+    ("seg_champions_revenue", millions, "account for {}, or"),
+    ("seg_champions_rev_pct", "{:.1f}", "or {}% of all identified revenue"),
+    ("seg_lost_customers", "{:,}", "At the other end, {} *Lost*"),
+    ("seg_hibernating_customers", "{:,}", "*Lost* and {} *Hibernating*"),
+    ("at_risk_customers", "{:,}", "{} customers in *Cannot lose them*"),
+    ("at_risk_revenue", millions, "have already spent {}"),
+    ("at_risk_rev_pct", "{:.1f}", "({}% of identified revenue) and have stopped"),
+    # finding 3 -- the two cancelled sales
+    ("raw_rows", millions, "biggest line in {} rows"),
+    ("biggest_sale_units", "{:,}", "{} units of *Paper Craft"),
+    ("biggest_sale_value", "{:,.2f}", "Birdie*, {}"),
+    ("biggest_sale_cancel_gap_min", "{:,.0f}", "was cancelled {} minutes after"),
+    ("biggest_sale_net", "{:,.2f}", "Net contribution: {}"),
+    ("second_cancel_units", "{:,}", "({} ceramic storage jars,"),
+    ("second_cancel_value", "{:,.2f}", "storage jars, {})"),
+    ("worst_net_mover_gross_rank", "{}", "retailer's {}th best seller"),
+    ("worst_net_mover_net_rank", "{:,}", "net of cancellations it is {}st"),
+    ("net_rank_movers", spelled, "{} of the top ten products change position"),
+    # finding 4 -- returns
+    ("return_value", "{:,.0f}", "Customer returns total {} across"),
+    ("return_rows", "{:,}", "across {} lines"),
+    ("return_rate_pct", "{:.2f}", "lines {}% of gross revenue"),
+    ("mean_monthly_return_rate_pct", "{:.2f}", "The monthly rate averages {}%"),
+    ("worst_return_rate_pct", "{:.2f}", "spikes to {}% in January 2011"),
+    ("credit_note_value", "{:,.0f}", "set aside in step 3 come to {},"),
+    ("admin_reversal_value", "{:,.0f}", "but {} of that is"),
+    # finding 5 -- one country, one quarter
+    ("uk_share_pct", "{:.2f}", "The UK is {}% of revenue"),
+    ("uk_revenue", millions, "of revenue ({});"),
+    ("export_revenue", millions, "markets together make {}."),
+    ("q4_monthly_avg", millions, "averages {} per month against"),
+    ("rest_monthly_avg", "{:,.0f}", "against {} for every"),
+    ("q4_uplift_pct", "{:.1f}", "a {}% seasonal uplift"),
+    ("peak_month_revenue", millions, "peaking at {} in November 2011"),
+    ("trough_month_revenue", "{:,.0f}", "against a {} trough in February 2011"),
+    ("best_export_aov", "{:,.2f}", "the Netherlands averages {} per order"),
+    ("uk_aov", "{:,.2f}", "against the UK's {}"),
+    # finding 6 -- where year 2's revenue came from
+    ("yoy_growth_pct", "{:.1f}", "like-for-like years grew {}%"),
+    ("year1_revenue", millions, "({} to"),
+    ("year2_revenue", millions, "to {})."),
+    ("returning_share_year2_pct", "{:.1f}", "{}% of identified revenue came from customers"),
+    ("year1_id_revenue", "{:,.0f}", "identified revenue went from {} to"),
+    ("year2_id_revenue", "{:,.0f}", "to {} a rise of just"),
+    ("year2_id_growth", "{:,.0f}", "a rise of just {}"),
+    ("year2_id_growth_pct", "{:.1f}", "(+{}%)"),
+    ("year2_revenue_from_new_cohorts", "{:,.0f}", "breaks down as {} from customers"),
+    ("year2_change_in_existing_base", magnitude, "against a {} decline in the year-1 base"),
+    ("preacquired_share_year2_pct", "{:.1f}", "still supplied {}% of year-2 revenue"),
+    # finding 7 -- Christmas, and section 11.2's basis
+    ("retention_m1_true", "{:.1f}", "{}% at month 1,"),
+    ("retention_m3_true", "{:.1f}", "{}% at month 3,"),
+    ("retention_m6_true", "{:.1f}", "{}% at month 6,"),
+    ("retention_m12_true", "{:.1f}", "{}% at month 12"),
+    ("xmas_cohort_m3", "{:.1f}", "retain at {}% by month 3"),
+    ("nonxmas_cohort_m3", "{:.1f}", "against {}% for customers acquired in any other month"),
+    ("xmas_cohort_count", spelled, "comparison is {} cohorts"),
+    ("xmas_cohort_customers", "{:,}", "(n=76) {} customers,"),
+    ("xmas_cohort_retained_m3", "{:,}", "{} of whom ordered again in month 3"),
+    # Long on purpose. Section 12.3 quotes the old bug -- "ran against 20 off-peak
+    # cohorts" -- so the short version of this anchor matches two figures, and on
+    # the day facts.json came to say 20 it would have found the quotation and
+    # passed. "All of it comes" is the next sentence of finding 7 and nowhere else.
+    ("nonxmas_cohort_count", "{:,}", "against {} off-peak cohorts. All of it comes"),
+    # finding 8 -- rules against clusters
+    ("purity_cannot_lose_them_pct", "{:.1f}", "*Cannot lose them* maps {}% onto one cluster"),
+    ("purity_lost_pct", "{:.1f}", "*Lost* maps {}% onto"),
+    ("min_segment_purity_pct", "{:.1f}", "the weakest is *Loyal* at {}%"),
+    ("customer_concordance_pct", "{:.1f}", "At customer level, {}% of accounts"),
+    ("silhouette_best_k", "{}", "silhouette score preferred **k = {}"),
+    # Anchored on the words either side rather than on the k they follow: the k is
+    # itself a checked fact two lines up, and an anchor that hardcodes one fact to
+    # find another goes stale twice as fast as the sentence it is watching.
+    ("silhouette_best", "{}", "({})** over the"),
+    ("silhouette_at_k", "{}", "({})** adopted here"),
+]
+
+#: The .docx, which is generated and therefore only ever collectively old. Body
+#: text rather than the appendix tables, and quoted at the precision the report
+#: uses -- it writes GBP 1,689,620 where the notebook writes GBP 1.69M, which is
+#: itself a reason not to share one map between them.
+REPORT_PROSE = [
+    ("raw_rows", "{:,}", "This project analyses {} transaction lines"),
+    ("rows_retained_pct", "{:.1f}", "cleaning pass that retains {}% of rows"),
+    ("total_revenue", "{:,.0f}", "the analysed base is {} of revenue"),
+    ("orders", "{:,}", "of revenue across {} orders"),
+    ("customers", "{:,}", "orders, {} identified customers"),
+    ("products", "{:,}", "customers and {} products"),
+    ("top20pct_customers", "{:,}", "concentration. {} customers"),
+    ("top20pct_share", "{:.1f}", "produce {}% of identified revenue, and the top 1%"),
+    ("seg_champions_customers", "{:,}", "nine segments. {} Champions"),
+    # The report says this twice, "GBP 12,536,030" in the body and "GBP 12.54M" in
+    # the summary, and nothing but figures separates the two sentences until after
+    # the share. Hence the skip: the alternative is writing 71.5 into this file.
+    ("seg_champions_revenue", "{:,.0f}",
+     "the base account for {}, or ... of all identified revenue. They order"),
+    ("at_risk_revenue", "{:,.0f}", "who have already spent {} ("),
+    ("year2_change_in_existing_base", magnitude, "against a {} decline in the base"),
+    ("uk_revenue", "{:,.0f}", "({}). All"),
+    ("sales_id_revenue", "{:,.0f}", "measured against the {} carried by identified"),
+    ("k_chosen", "{}", "the value adopted here is k = {}"),
+    ("nonxmas_cohort_count", "{:,}", "against {} off-peak cohorts"),
+    ("xmas_cohort_retained_m3", "{:,}", "{} of whom ordered again at month 3"),
+]
+
+#: The notebook's committed cell outputs: 1.2 MB of executed stream text, and the
+#: only record in the repository of what the analysis actually printed. Generated
+#: like the report, and stale in the same way -- facts.json can be recommitted from
+#: a later run than the notebook was last executed in, and nothing about the file
+#: would look wrong.
+#:
+#: These anchors are unusually safe, which is worth knowing: the words around each
+#: number come from an f-string in build_notebook.py, and check 3 already holds the
+#: notebook's cell sources to that file. An anchor here stops matching only when
+#: the code that prints it changed -- which is exactly when the numbers under it
+#: need re-reading anyway.
+NOTEBOOK_OUTPUT = [
+    ("xmas_cohort_m3", "{:.1f}", "acquired in Nov/Dec : {}%"),
+    ("nonxmas_cohort_m3", "{:.1f}", "in any other month : {}%"),
+    ("xmas_cohort_count", "{}", "Basis: {} peak cohorts"),
+    ("xmas_cohort_customers", "{:,}", "totalling {} customers"),
+    ("xmas_cohort_retained_m3", "{:,}", "of whom {} ordered again in month 3"),
+    ("nonxmas_cohort_count", "{:,}", "against {} off-peak cohorts."),
+    ("at_risk_customers", "{:,}", "{} customers sit in 'Cannot lose them'"),
+    ("partial_month_cells_masked", "{:,}", "{} retention cells fall in the partial month"),
+    ("largest_cohort_size", "{:,}", "with {} customers"),
+    ("customers", "{:,}", "projections across all {} customers"),
+    ("proj_vs_actual_ratio", "{}", "Ratio, like-for-like : {}x"),
+    ("proj_vs_allbase_ratio", "{}", "understates the gap) : {}x"),
+]
+
+
+def check_anchored(label, text, facts, specs, fix):
+    """Hold every (fact, rendering, anchor) in `specs` to `text`.
+
+    Four answers, and the last two are the reason this is shaped like this:
+
+      the figure is there and right   -- counted
+      the anchor matched, figure not  -- the document disagrees with facts.json
+      the anchor matched twice, on
+        two different figures         -- the anchor is not specific enough to say
+                                         which sentence it is reading
+      the anchor did not match at all -- the sentence was rewritten, and this
+                                         check no longer knows what it is reading
+
+    The last is a failure. It is the one that is tempting to make a skip, because
+    it fires on an innocent edit, and it is exactly what the dead pattern in
+    check_readme did instead.
+
+    The ambiguous case is not hypothetical, and it is not a style rule. These
+    documents describe their own past mistakes -- the notebook's reproducibility
+    section says the cohort comparison once "ran against 20 off-peak cohorts where
+    facts.json and the generated report both said 18" -- so a wrong figure from
+    years ago is deliberately, permanently in the prose. An anchor loose enough to
+    bind to that sentence would pass the day facts.json came to say 20, while the
+    finding itself still said something else. Two figures for one anchor is
+    therefore reported here rather than resolved by taking the first.
+    """
+    checked = 0
+    for key, spec, anchor in specs:
+        if key not in facts:
+            fail(f"{label}: facts.json has no fact named {key!r}.",
+                 "It was renamed or dropped by a re-run. Entries here name the\n"
+                 "fact rather than the number, so there is nothing in this file\n"
+                 "that can quietly agree with the document instead.")
+            continue
+        want = spec(facts[key]) if callable(spec) else spec.format(facts[key])
+        loose = list(anchored(anchor, "(" + ANY_FIGURE + ")").finditer(text))
+        if len({m.group(1) for m in loose}) > 1:
+            fail(f"{label}: the anchor for {key} matches more than one figure.",
+                 "  " + "\n  ".join("..." + excerpt(m) + "..."
+                                    for m in loose[:4]) + "\n"
+                 "One of those is the sentence this entry means and the rest are\n"
+                 "somewhere else in the document -- often an older figure quoted on\n"
+                 "purpose. Lengthen the anchor in this file until it names one\n"
+                 "sentence. Leaving it would pass on the day facts.json comes to\n"
+                 "hold the other number.")
+            continue
+        if anchored(anchor, re.escape(want)).search(text):
+            checked += 1
+            continue
+        if loose:
+            found = loose[0]
+            fail(f"{label} says {plain(found.group(1))} where facts.json "
+                 f"says {want} ({key}).",
+                 "  ..." + excerpt(found) + "...\n" + fix)
+        else:
+            fail(f"{label}: the sentence carrying {key} is not there any more.",
+                 "The anchor, with the value facts.json holds today dropped in:\n"
+                 "  " + anchor.replace("{}", want) + "\n"
+                 "Re-anchor the entry on the new wording, or delete the entry and\n"
+                 "the figure together. Do not leave it unmatched -- a pattern that\n"
+                 "finds nothing and passes is how the check above this one spent\n"
+                 "its whole life reporting clean.")
+    if checked == len(specs):
+        ok(f"{label}: all {checked} anchored figure(s) agree with facts.json")
+    return checked
+
+
+FIX_NOTEBOOK = (
+    "facts.json is the source of truth: fix the sentence, not the fact. The sentence\n"
+    "lives in tools/build_notebook.py -- editing only the .ipynb works until the next\n"
+    "regeneration reverts it, so the edit has to reach that file either way.\n"
+    "Regenerating from it is the clean route, but it writes an *unexecuted* notebook:\n"
+    "restoring the committed outputs then needs tools/run_notebook.py and the 112 MB\n"
+    "source workbook, which is a data download for a typo. For a prose-only\n"
+    "correction the cheaper route is to make the identical edit in both files and let\n"
+    "check 3 above prove the sources still match -- which is how the notebook's own\n"
+    "Reproducibility section was corrected, with the committed outputs untouched."
+)
+FIX_REPORT = (
+    "The committed .docx was built from an older facts.json. Re-run\n"
+    "python tools/build_report.py and commit the result."
+)
+FIX_OUTPUT = (
+    "The committed notebook was executed against an older facts.json than the one\n"
+    "in outputs/. Re-run python tools/run_notebook.py and commit both, so the\n"
+    "outputs in the notebook and the facts file come from the same run."
+)
+
+
+def notebook_text():
+    """What a reader reads, and what the last execution printed.
+
+    Read through nbformat rather than json for the reason build_notebook.py gives
+    for its own --check: `source` and a stream's `text` are lists of lines on
+    disk, and nbformat is what puts them back together.
+    """
+    nb = nbf.read(NOTEBOOK, as_version=4)
+    prose = "\n\n".join(c.source for c in nb.cells if c.cell_type == "markdown")
+    printed = "\n".join(
+        "".join(o.get("text", "") for o in c.get("outputs", [])
+                if o.get("output_type") == "stream")
+        for c in nb.cells if c.cell_type == "code"
+    )
+    return prose, printed
+
+
+def report_text():
+    """The .docx's text, without adding python-docx to this repository's CI.
+
+    A .docx is a zip and word/document.xml is the text with formatting runs
+    interleaved through it. Dropping the tags joins those runs back together,
+    which is the point rather than a shortcut: Word will split "1,170" across two
+    <w:t> elements the moment someone retypes a digit, and a reader that took the
+    runs separately would report a missing number for a document that says it.
+    """
+    with zipfile.ZipFile(REPORT) as archive:
+        xml = archive.read("word/document.xml").decode("utf-8")
+    return re.sub(r"<[^>]+>", "", re.sub(r"</w:p>", "\n", xml))
+
+
+def check_generated_from(payload, printed, report):
+    """The one figure in each artefact that names the facts.json it was built from.
+
+    Both of them state the size of the facts file: the notebook's last cell prints
+    "(236 facts, 14 figures)" and the report says "(236 facts plus the segment,
+    cluster, cohort and product tables)". A re-run that adds, drops or renames a
+    fact moves that count, so this is the cheapest staleness detector there is for
+    a committed artefact -- and unlike a figure in a sentence it cannot be
+    satisfied by coincidence.
+    """
+    counts = [
+        ("the notebook's committed output", printed, "({} facts,",
+         len(payload["facts"]), FIX_OUTPUT),
+        ("the notebook's committed output", printed, "facts, {} figures)",
+         len(payload["figures"]), FIX_OUTPUT),
+        ("the committed .docx", report, "({} facts plus",
+         len(payload["facts"]), FIX_REPORT),
+    ]
+    before = failures
+    for label, text, anchor, value, fix in counts:
+        want = f"{value:,}"
+        if anchored(anchor, re.escape(want)).search(text):
+            continue
+        found = anchored(anchor, "(" + ANY_FIGURE + ")").search(text)
+        if found:
+            fail(f"{label} was generated from a facts.json holding "
+                 f"{plain(found.group(1))}, not the {want} committed in "
+                 "outputs/.", fix)
+        else:
+            fail(f"{label} no longer states which facts.json it was built from.",
+                 "The line that said so is gone, so the cheapest check that the\n"
+                 "artefact is not stale is gone with it. Restore it, or re-anchor\n"
+                 "this check on whatever replaced it.\n" + fix)
+    if failures == before:
+        ok(f"both artefacts were generated from a facts.json holding "
+           f"{len(payload['facts']):,} facts and {len(payload['figures'])} figures")
+
+
+# --------------------------------------------------------------------------- #
 
 def main():
     if not FACTS_PATH.exists():
@@ -274,6 +805,19 @@ def main():
     print()
     print("  -- the notebook against tools/build_notebook.py --")
     check_notebook_is_generated()
+    print()
+    prose, printed = notebook_text()
+    report = report_text()
+    print("  -- the notebook's narrative against outputs/facts.json --")
+    check_anchored("the notebook's prose", prose, payload["facts"],
+                   NOTEBOOK_PROSE, FIX_NOTEBOOK)
+    print()
+    print("  -- the committed artefacts against outputs/facts.json --")
+    check_generated_from(payload, printed, report)
+    check_anchored("the notebook's committed output", printed, payload["facts"],
+                   NOTEBOOK_OUTPUT, FIX_OUTPUT)
+    check_anchored("the committed .docx", report, payload["facts"],
+                   REPORT_PROSE, FIX_REPORT)
     print()
 
     if failures:

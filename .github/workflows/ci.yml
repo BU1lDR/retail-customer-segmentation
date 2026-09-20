@@ -2,13 +2,28 @@ name: CI
 
 # This repository had no CI at all, which for an analysis project is a specific
 # gap rather than a general one. The notebook computes 236 numbers into
-# outputs/facts.json; the .docx report is generated from that file and so cannot
-# drift; the README quotes about a hundred of the same numbers by hand and can.
-# Nothing compared them.
+# outputs/facts.json, and every other file here states some of them again: the
+# README by hand, the notebook's own markdown cells by hand, and the .docx and the
+# notebook's committed cell outputs as the record of whichever run last produced
+# them. Nothing compared any of it.
 #
-# The first run of tools/check_docs_drift.py found a stale figure in the notebook
-# — "20 off-peak cohorts" where facts.json says 18 — which the generated report
-# had had right all along. That is the whole argument for this file.
+# An earlier version of this comment said the .docx "is generated from that file
+# and so cannot drift". Generated is a fact about tools/build_report.py, not about
+# the file committed here: re-run the notebook, commit facts.json, leave the .docx
+# alone, and this repository holds a report that disagrees with the analysis while
+# looking untouched. The same goes for the 1.2 MB of executed outputs inside the
+# notebook. Both are read against facts.json now rather than trusted.
+#
+# It also credited the notebook-against-its-builder comparison with catching the
+# stale "20 off-peak cohorts" that facts.json said was 18. That comparison cannot
+# catch it: the .ipynb is generated from tools/build_notebook.py, so a figure typed
+# wrong in the builder is wrong identically in both files, they agree, and the check
+# reports clean — putting the 20 back into both is enough to watch it happen. What
+# catches it is reading the notebook's prose against facts.json directly, which is
+# what the checker does now, over 109 anchored figures. That is the argument for
+# this file, and the correction is kept rather than quietly edited out because a
+# guard credited with a catch it cannot make is worse than no guard: the next person
+# reads the claim instead of the code.
 #
 # What it deliberately does not do is run the notebook. The source workbook is
 # 112 MB from UCI, is not committed, and a full execution takes minutes; a job
