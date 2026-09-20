@@ -1,0 +1,57 @@
+# Opt-in: make a project repository tell the profile the moment it changes.
+#
+# Without this, the profile catches up on the hour. With it, a push to main or a
+# published release here sends BU1lDR/BU1lDR a repository_dispatch and the README
+# rebuilds within a minute or two.
+#
+# It needs a token, because a repository's own GITHUB_TOKEN can only act on that
+# repository. One-time setup, in a browser:
+#
+#   1. github.com -> Settings -> Developer settings -> Fine-grained personal access
+#      tokens -> Generate new token. Repository access: only BU1lDR/BU1lDR.
+#      Permissions: Contents = Read and write (the dispatch endpoint requires it).
+#      Nothing else. Give it an expiry and put a reminder in your calendar.
+#   2. Store it in each project repository as a secret named PROFILE_DISPATCH_TOKEN:
+#        gh secret set PROFILE_DISPATCH_TOKEN -R BU1lDR/<repo>
+#   3. Copy this file to .github/workflows/notify-profile.yml in that repository.
+#      Edit `branches` below if that repository's default branch is not main.
+#
+# While the secret is absent the step is skipped and the job is green, so the file
+# can be committed before step 2. If the call fails later -- token revoked or
+# expired (401), scoped to the wrong repository (404), missing Contents: write
+# (403) -- gh's own message is reported as a warning annotation on the run, not a
+# red job: this repository's CI must not go red over something that is not about
+# this repository. The hourly schedule on the profile covers the gap either way.
+
+name: Notify profile
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PROFILE_DISPATCH_TOKEN: ${{ secrets.PROFILE_DISPATCH_TOKEN }}
+    steps:
+      - name: Tell BU1lDR/BU1lDR to rebuild its README
+        if: env.PROFILE_DISPATCH_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.PROFILE_DISPATCH_TOKEN }}
+        run: |
+          if gh api -X POST repos/BU1lDR/BU1lDR/dispatches \
+               -f event_type=project-updated \
+               -f "client_payload[repository]=${GITHUB_REPOSITORY}" \
+               -f "client_payload[sha]=${GITHUB_SHA}" \
+               2> "$RUNNER_TEMP/gh.err"; then
+            echo "Profile notified."
+          else
+            echo "::warning::profile dispatch failed: $(tr -d '\n' < "$RUNNER_TEMP/gh.err") -- the profile's hourly run will catch up."
+          fi
