@@ -42,10 +42,11 @@ analysis, none of which anything noticed:
      that happened before the last one is stale rather than generated.
 
   6. .github/PROFILE.md is the paragraph the profile README at github.com/BU1lDR
-     renders for this repository, rebuilt from this file every hour by another
-     repository's workflow. It is typed by hand, carries the headline figures, and
-     reaches more readers than anything else here -- and until it had a map below
-     it was the one copy in the repository that nothing read.
+     renders for this repository, rebuilt from this file by another repository's
+     workflow, on a push here and once a day. It is typed by hand, carries the
+     headline figures, and reaches more readers than anything else here -- and
+     until it had a map below it was the one copy in the repository that nothing
+     read.
 
 All six are checked here, and all six are checked without the source data --
 which is the point. The dataset is 112 MB and not committed, so any check that
@@ -638,12 +639,12 @@ NOTEBOOK_OUTPUT = [
 
 
 #: The paragraph the profile README at github.com/BU1lDR renders for this repository.
-#: BU1lDR/BU1lDR/tools/build_readme.py reads .github/PROFILE.md from here on the hour
-#: and rewrites the profile from it, so this file is the copy of the headline figures
-#: that reaches the most readers -- and, until this map existed, the one copy in the
-#: repository that nothing checked. It is short on purpose (a tagline, a meta row, two
-#: paragraphs), so every figure it carries is here. The title line is read too: the
-#: heading tail states the row count.
+#: BU1lDR/BU1lDR/tools/build_readme.py reads .github/PROFILE.md from here on a push
+#: and once a day, and rewrites the profile from it, so this file is the copy of the
+#: headline figures that reaches the most readers -- and, until this map existed, the
+#: one copy in the repository that nothing checked. It is short on purpose (a
+#: tagline, a meta row, two paragraphs), so every figure it carries is here. The
+#: title line is read too: the heading tail states the row count.
 PROFILE_PROSE = [
     ("raw_rows", "{:,}", "{} transaction lines"),
     ("at_risk_customers", "{:,}", "Names the {} high-value accounts"),
@@ -742,7 +743,8 @@ FIX_OUTPUT = (
 )
 FIX_PROFILE = (
     "facts.json is the source of truth: fix the sentence in .github/PROFILE.md. The\n"
-    "profile README at github.com/BU1lDR rebuilds from that file within the hour."
+    "profile README at github.com/BU1lDR rebuilds from that file a minute or two\n"
+    "after the push that fixes it."
 )
 
 

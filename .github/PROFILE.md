@@ -1,5 +1,5 @@
 <!-- Rendered into the profile README at github.com/BU1lDR by
-     BU1lDR/BU1lDR/tools/build_readme.py, on the hour and on dispatch.
+     BU1lDR/BU1lDR/tools/build_readme.py, on a push here and once a day regardless.
      Format: "# <display name> — <heading tail>", a one-line meta row, then at most
      two short paragraphs. Placeholders filled from the GitHub API: {license}
      {version} {live} {description}. Every figure below is a copy of a key in

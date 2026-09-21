@@ -1,6 +1,6 @@
 # Opt-in: make a project repository tell the profile the moment it changes.
 #
-# Without this, the profile catches up on the hour. With it, a push to main or a
+# Without this, the profile catches up on its own schedule. With it, a push to main or a
 # published release here sends BU1lDR/BU1lDR a repository_dispatch and the README
 # rebuilds within a minute or two.
 #
@@ -21,7 +21,7 @@
 # expired (401), scoped to the wrong repository (404), missing Contents: write
 # (403) -- gh's own message is reported as a warning annotation on the run, not a
 # red job: this repository's CI must not go red over something that is not about
-# this repository. The hourly schedule on the profile covers the gap either way.
+# this repository. The profile's own schedule covers the gap either way.
 
 name: Notify profile
 
@@ -53,5 +53,5 @@ jobs:
                2> "$RUNNER_TEMP/gh.err"; then
             echo "Profile notified."
           else
-            echo "::warning::profile dispatch failed: $(tr -d '\n' < "$RUNNER_TEMP/gh.err") -- the profile's hourly run will catch up."
+            echo "::warning::profile dispatch failed: $(tr -d '\n' < "$RUNNER_TEMP/gh.err") -- the profile's next scheduled run will catch up."
           fi

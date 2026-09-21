@@ -181,12 +181,12 @@ typed into `tools/build_notebook.py` and cannot read a runtime value. The `.docx
 and the 1.2 MB of executed cell outputs committed inside the notebook are typed by
 nobody, but they are records of the run that produced them, and `facts.json` can be
 recommitted from a later one. And `.github/PROFILE.md`, the paragraph the profile
-README at github.com/BU1lDR renders for this repository every hour, is typed by hand
-like this file is. All five can be wrong while reading as authoritative. So the check
-holds all five to `facts.json`: 39 numbers in this README, all 186 facts
-`build_report.py` reads by name, the notebook's cell sources against its builder,
-and 114 anchored figures across the notebook's prose, its committed outputs, the
-report and the profile blurb.
+README at github.com/BU1lDR renders for this repository on a push here and once a
+day, is typed by hand like this file is. All five can be wrong while reading as
+authoritative. So the check holds all five to `facts.json`: 39 numbers in this
+README, all 186 facts `build_report.py` reads by name, the notebook's cell sources
+against its builder, and 114 anchored figures across the notebook's prose, its
+committed outputs, the report and the profile blurb.
 
 Anchored means each figure is found by the sentence around it rather than by
 matching a number anywhere in the file. A bare number matches by coincidence -- the
